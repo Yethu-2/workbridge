@@ -1,77 +1,146 @@
 import bcrypt from 'bcryptjs';
-import db from '../config/database.js';
+import supabase from '../config/supabase.js';
 
 class User {
   static async create(userData) {
-    // Hash password
-    const hashedPassword = await bcrypt.hash(userData.password, 10);
-    
-    const user = db.create('users', {
-      email: userData.email,
-      password: hashedPassword,
-      name: userData.name,
-      role: userData.role || 'job_seeker', // job_seeker, employer, admin
-      profile: {
-        phone: userData.phone || '',
-        location: userData.location || '',
-        bio: userData.bio || '',
-        skills: userData.skills || [],
-        experience: userData.experience || [],
-        education: userData.education || []
-      },
-      employerProfile: userData.role === 'employer' ? {
-        companyName: userData.companyName || '',
-        industry: userData.industry || '',
-        companySize: userData.companySize || '',
-        website: userData.website || '',
-        description: userData.description || ''
-      } : null,
-      verified: false,
-      active: true
-    });
+    try {
+      // Hash password
+      const hashedPassword = await bcrypt.hash(userData.password, 10);
 
-    // Remove password from returned object
-    const { password, ...userWithoutPassword } = user;
-    return userWithoutPassword;
+      const { data, error } = await supabase
+        .from('users')
+        .insert([
+          {
+            email: userData.email,
+            password: hashedPassword,
+            name: userData.name,
+            role: userData.role || 'job_seeker',
+            phone: userData.phone || null,
+            location: userData.location || null,
+            bio: userData.bio || null,
+            skills: userData.skills || [],
+            company_name: userData.role === 'employer' ? userData.companyName : null,
+            industry: userData.industry || null,
+            company_size: userData.companySize || null,
+            website: userData.website || null,
+            company_description: userData.description || null,
+            verified: false,
+            active: true
+          }
+        ])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Remove password from returned object
+      const { password, ...userWithoutPassword } = data;
+      return userWithoutPassword;
+    } catch (error) {
+      console.error('User create error:', error);
+      throw error;
+    }
   }
 
   static async findByEmail(email) {
-    return db.findOne('users', { email });
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', email)
+        .single();
+
+      if (error && error.code !== 'PGRST116') throw error; // PGRST116 = no rows returned
+      return data;
+    } catch (error) {
+      console.error('User findByEmail error:', error);
+      throw error;
+    }
   }
 
   static async findById(id) {
-    const user = db.findById('users', id);
-    if (!user) return null;
-    
-    const { password, ...userWithoutPassword } = user;
-    return userWithoutPassword;
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (error && error.code !== 'PGRST116') throw error;
+      
+      if (!data) return null;
+
+      const { password, ...userWithoutPassword } = data;
+      return userWithoutPassword;
+    } catch (error) {
+      console.error('User findById error:', error);
+      throw error;
+    }
   }
 
   static async findAll(filter = {}) {
-    const users = db.findAll('users', filter);
-    return users.map(user => {
-      const { password, ...userWithoutPassword } = user;
-      return userWithoutPassword;
-    });
+    try {
+      let query = supabase.from('users').select('*');
+
+      if (filter.role) {
+        query = query.eq('role', filter.role);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+
+      return data.map(user => {
+        const { password, ...userWithoutPassword } = user;
+        return userWithoutPassword;
+      });
+    } catch (error) {
+      console.error('User findAll error:', error);
+      throw error;
+    }
   }
 
   static async update(id, userData) {
-    const updateData = { ...userData };
-    
-    // Hash password if it's being updated
-    if (updateData.password) {
-      updateData.password = await bcrypt.hash(updateData.password, 10);
-    }
+    try {
+      const updateData = { ...userData };
 
-    const user = db.update('users', id, updateData);
-    if (!user) return null;
-    
-    const { password, ...userWithoutPassword } = user;
-    return userWithoutPassword;
+      // Hash password if it's being updated
+      if (updateData.password) {
+        updateData.password = await bcrypt.hash(updateData.password, 10);
+      }
+
+      const { data, error } = await supabase
+        .from('users')
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      if (!data) return null;
+
+      const { password, ...userWithoutPassword } = data;
+      return userWithoutPassword;
+    } catch (error) {
+      console.error('User update error:', error);
+      throw error;
+    }
   }
 
   static async delete(id) {
-    return db.delete('users', id);
+    try {
+      const { error } = await supabase
+        .from('users')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('User delete error:', error);
+      throw error;
+    }
   }
 
   static async comparePassword(plainPassword, hashedPassword) {

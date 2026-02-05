@@ -107,7 +107,10 @@ const Header = ({
  <button onClick={() => onLanguageChange('vi')} className={langButtonClasses('vi')}>VN</button>
  </div>
  {isLoggedIn ? (
+ <div className="flex items-center space-x-3">
  <button onClick={onMyPageClick} className="bg-slate-900 text-white text-xs font-black px-6 py-3 rounded-full uppercase tracking-tighter">{t('myPage')}</button>
+ <button onClick={onLogout} className="bg-slate-100 text-slate-600 hover:bg-red-50 hover:text-red-600 text-xs font-black px-6 py-3 rounded-full uppercase tracking-tighter transition-colors">{t('logout')}</button>
+ </div>
  ) : (
  <button onClick={onLogin} className="bg-slate-900 text-white text-xs font-black px-8 py-3.5 rounded-full uppercase tracking-tighter">{t('login')}</button>
  )}

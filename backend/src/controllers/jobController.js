@@ -14,7 +14,7 @@ export const createJob = async (req, res) => {
       jobData.employerName = employer.employerProfile?.companyName || employer.name;
     }
 
-    const job = Job.create(jobData);
+      const job = await Job.create(jobData);
 
     res.status(201).json({
       success: true,
@@ -44,7 +44,7 @@ export const getAllJobs = async (req, res) => {
       status: status || 'active' // Default to active jobs
     };
 
-    const jobs = Job.findAll(filter);
+      const jobs = await Job.findAll(filter);
 
     res.json({
       success: true,
@@ -67,7 +67,7 @@ export const getJobById = async (req, res) => {
   try {
     const { id } = req.params;
     
-    const job = Job.findById(id);
+      const job = await Job.findById(id);
     
     if (!job) {
       return res.status(404).json({
@@ -77,7 +77,7 @@ export const getJobById = async (req, res) => {
     }
 
     // Increment view count
-    Job.incrementViews(id);
+      await Job.incrementViews(id);
 
     res.json({
       success: true,
@@ -98,7 +98,7 @@ export const updateJob = async (req, res) => {
     const { id } = req.params;
     
     // Check if job exists
-    const existingJob = Job.findById(id);
+      const existingJob = await Job.findById(id);
     if (!existingJob) {
       return res.status(404).json({
         success: false,
@@ -114,7 +114,7 @@ export const updateJob = async (req, res) => {
       });
     }
 
-    const job = Job.update(id, req.body);
+      const job = await Job.update(id, req.body);
 
     res.json({
       success: true,
@@ -136,7 +136,7 @@ export const deleteJob = async (req, res) => {
     const { id } = req.params;
     
     // Check if job exists
-    const existingJob = Job.findById(id);
+      const existingJob = await Job.findById(id);
     if (!existingJob) {
       return res.status(404).json({
         success: false,
@@ -152,7 +152,7 @@ export const deleteJob = async (req, res) => {
       });
     }
 
-    Job.delete(id);
+      await Job.delete(id);
 
     res.json({
       success: true,
@@ -190,7 +190,7 @@ export const applyForJob = async (req, res) => {
       coverLetter
     };
 
-    const job = Job.addApplicant(id, applicationData);
+      const job = await Job.addApplicant(id, applicationData);
 
     if (!job) {
       return res.status(404).json({
@@ -220,7 +220,7 @@ export const updateApplicationStatus = async (req, res) => {
     const { status } = req.body;
 
     // Check if job exists and user is the owner
-    const job = Job.findById(jobId);
+    const job = await Job.findById(jobId);
     if (!job) {
       return res.status(404).json({
         success: false,
@@ -235,7 +235,7 @@ export const updateApplicationStatus = async (req, res) => {
       });
     }
 
-    const updatedJob = Job.updateApplicationStatus(jobId, applicationId, status);
+    const updatedJob = await Job.updateApplicationStatus(jobId, applicationId, status);
 
     if (!updatedJob) {
       return res.status(404).json({
@@ -261,7 +261,7 @@ export const updateApplicationStatus = async (req, res) => {
 
 export const getFeaturedJobs = async (req, res) => {
   try {
-    const jobs = Job.getFeatured();
+    const jobs = await Job.getFeatured();
 
     res.json({
       success: true,
@@ -279,27 +279,7 @@ export const getFeaturedJobs = async (req, res) => {
 
 export const getMyApplications = async (req, res) => {
   try {
-    const allJobs = Job.findAll({ status: 'active' });
-    
-    // Filter jobs where user has applied
-    const myApplications = allJobs
-      .map(job => {
-        const application = job.applicants.find(app => app.userId === req.userId);
-        if (application) {
-          return {
-            job: {
-              id: job.id,
-              title: job.title,
-              company: job.company,
-              location: job.location,
-              type: job.type
-            },
-            application
-          };
-        }
-        return null;
-      })
-      .filter(item => item !== null);
+    const myApplications = await Job.getMyApplications(req.userId);
 
     res.json({
       success: true,

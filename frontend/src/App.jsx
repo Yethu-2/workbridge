@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Header from './components/Header';
 import JobDetails from './components/JobDetails';
 import MyPage from './components/MyPage';
@@ -10,6 +10,8 @@ import WorkingHolidayPage from './components/WorkingHolidayPage';
 import FindJobsPage from './components/FindJobsPage';
 import TalentPoolPage from './components/TalentPoolPage';
 import VisaPage from './components/VisaPage';
+import { fetchFeaturedJobs, fetchJobs } from './api/jobs';
+import { login, register } from './api/auth';
 
 const MOCK_JOBS = [
   // Agriculture (WH)
@@ -98,6 +100,10 @@ const App = () => {
   const [language, setLanguage] = useState('ko');
   const [whCategory, setWhCategory] = useState(null);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [jobs, setJobs] = useState([]);
+  const [featuredJobs, setFeaturedJobs] = useState([]);
+  const [jobsLoading, setJobsLoading] = useState(true);
+  const [jobsError, setJobsError] = useState(null);
 
   const t = (key) => translations[language][key] || key;
   const getTranslated = (textObject, lang) => textObject ? (textObject[lang] || textObject['ko']) : '';
@@ -109,11 +115,166 @@ const App = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const toTranslated = (value, fallback = '') => ({
+    ko: value || fallback,
+    en: value || fallback,
+    vi: value || fallback
+  });
+
+  const parseSalaryAmount = (salary) => {
+    if (typeof salary === 'number') return salary;
+    if (typeof salary === 'string') {
+      const digits = salary.replace(/[^0-9]/g, '');
+      return digits ? Number(digits) : 0;
+    }
+    return 0;
+  };
+
+  const buildSalaryText = (salary, amount) => {
+    if (salary) return toTranslated(salary);
+    if (!amount) {
+      return {
+        ko: '협의',
+        en: 'Negotiable',
+        vi: 'Thỏa thuận'
+      };
+    }
+    return {
+      ko: `월 ${amount.toLocaleString()}원`,
+      en: `KRW ${amount.toLocaleString()}/mo`,
+      vi: `KRW ${amount.toLocaleString()}/tháng`
+    };
+  };
+
+  const mapJobToUi = (job) => {
+    const amount = parseSalaryAmount(job.salary);
+    const salaryText = buildSalaryText(job.salary, amount);
+    const employerName = job.employer?.company_name || job.company || job.employer?.name || 'Employer';
+
+    return {
+      id: job.id,
+      title: toTranslated(job.title),
+      type: toTranslated(job.type || 'Full-time'),
+      salary: {
+        amount,
+        currency: 'KRW',
+        text: salaryText
+      },
+      description: toTranslated(job.description || ''),
+      employer: {
+        id: job.employer?.id || job.employer_id || job.employerId || 'unknown',
+        name: toTranslated(employerName),
+        logo: job.employer?.logo || `https://picsum.photos/seed/employer-${job.id}/200`,
+        industry: toTranslated(job.category || 'General'),
+        location: toTranslated(job.location || ''),
+        averageRating: job.employer?.averageRating || 0,
+        totalReviews: job.employer?.totalReviews || 0
+      },
+      industry: toTranslated(job.category || 'General'),
+      location: toTranslated(job.location || ''),
+      dueDate: job.created_at ? new Date(job.created_at).toISOString().slice(0, 10) : ''
+    };
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadJobs = async () => {
+      setJobsLoading(true);
+      try {
+        const [jobsData, featuredData] = await Promise.all([
+          fetchJobs(),
+          fetchFeaturedJobs()
+        ]);
+
+        if (!isMounted) return;
+
+        const mappedJobs = (jobsData || []).map(mapJobToUi);
+        const mappedFeatured = (featuredData || []).map(mapJobToUi);
+
+        setJobs(mappedJobs.length ? mappedJobs : MOCK_JOBS);
+        setFeaturedJobs(mappedFeatured.length ? mappedFeatured : (mappedJobs.length ? mappedJobs.slice(0, 3) : MOCK_JOBS.slice(0, 3)));
+        setJobsError(null);
+      } catch (error) {
+        if (!isMounted) return;
+        setJobs(MOCK_JOBS);
+        setFeaturedJobs(MOCK_JOBS.slice(0, 3));
+        setJobsError(error.message || 'Failed to load jobs');
+      } finally {
+        if (isMounted) setJobsLoading(false);
+      }
+    };
+
+    loadJobs();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const uniqueLocations = useMemo(() => {
+    const locationMap = new Map();
+    jobs.forEach((job) => {
+      const value = getTranslated(job.location, 'ko');
+      if (value) locationMap.set(value, job.location);
+    });
+    return Array.from(locationMap.values());
+  }, [jobs]);
+
+  const uniqueIndustries = useMemo(() => {
+    const industryMap = new Map();
+    jobs.forEach((job) => {
+      const value = getTranslated(job.industry, 'ko');
+      if (value) industryMap.set(value, job.industry);
+    });
+    return Array.from(industryMap.values());
+  }, [jobs]);
+
+  const uniqueJobTypes = useMemo(() => {
+    const typeMap = new Map();
+    jobs.forEach((job) => {
+      const value = getTranslated(job.type, 'ko');
+      if (value) typeMap.set(value, job.type);
+    });
+    return Array.from(typeMap.values());
+  }, [jobs]);
+
+  const handleSearch = async (filters) => {
+    const query = {
+      search: filters?.keyword || undefined,
+      location: filters?.location !== 'all' ? filters?.location : undefined,
+      category: filters?.industry !== 'all' ? filters?.industry : undefined,
+      type: filters?.jobType !== 'all' ? filters?.jobType : undefined
+    };
+
+    setJobsLoading(true);
+    try {
+      const jobsData = await fetchJobs(query);
+      const mappedJobs = (jobsData || []).map(mapJobToUi);
+      setJobs(mappedJobs.length ? mappedJobs : []);
+      setJobsError(null);
+    } catch (error) {
+      setJobsError(error.message || 'Failed to search jobs');
+    } finally {
+      setJobsLoading(false);
+    }
+  };
+
+  const handleLogin = async ({ email, password }) => {
+    const authData = await login({ email, password });
+    return authData;
+  };
+
+  const handleRegister = async ({ email, password, name, role }) => {
+    const authData = await register({ email, password, name, role });
+    return authData;
+  };
+
   const renderContent = () => {
     switch (currentView) {
-      case 'home': return <HomePage onFindJobsClick={() => navigate('jobs')} onVisaDiagnosisClick={() => navigate('visa')} featuredJobs={MOCK_JOBS.slice(0, 3)} t={t} language={language} getTranslated={getTranslated} onSelectJob={(job) => navigate('jobDetails', { job })} onToggleBookmark={() => {}} />;
-      case 'jobs': return <FindJobsPage jobs={MOCK_JOBS} onSelectJob={(job) => navigate('jobDetails', { job })} onToggleBookmark={() => {}} t={t} language={language} getTranslated={getTranslated} platformDirection="vn-to-kr" uniqueLocations={[]} uniqueIndustries={[]} uniqueJobTypes={[]} skills={[]} filters={{}} onSearch={()=>{}} />;
-      case 'workingHoliday': return <WorkingHolidayPage t={t} jobs={MOCK_JOBS} selectedCategory={whCategory} onCategorySelect={setWhCategory} onSelectJob={(job) => navigate('jobDetails', { job })} language={language} getTranslated={getTranslated} />;
+      case 'home': return <HomePage onFindJobsClick={() => navigate('jobs')} onVisaDiagnosisClick={() => navigate('visa')} featuredJobs={featuredJobs.length ? featuredJobs : MOCK_JOBS.slice(0, 3)} t={t} language={language} getTranslated={getTranslated} onSelectJob={(job) => navigate('jobDetails', { job })} onToggleBookmark={() => {}} />;
+      case 'jobs': return <FindJobsPage jobs={jobs.length ? jobs : MOCK_JOBS} onSelectJob={(job) => navigate('jobDetails', { job })} onToggleBookmark={() => {}} t={t} language={language} getTranslated={getTranslated} platformDirection="vn-to-kr" uniqueLocations={uniqueLocations} uniqueIndustries={uniqueIndustries} uniqueJobTypes={uniqueJobTypes} skills={[]} filters={{}} onSearch={handleSearch} />;
+      case 'workingHoliday': return <WorkingHolidayPage t={t} jobs={jobs.length ? jobs : MOCK_JOBS} selectedCategory={whCategory} onCategorySelect={setWhCategory} onSelectJob={(job) => navigate('jobDetails', { job })} language={language} getTranslated={getTranslated} />;
       case 'community': return <CommunityPage posts={[]} photos={[]} marketItems={[]} activeTab="posts" onTabChange={()=>{}} onSelectPost={() => {}} onNewPost={() => {}} t={t} language={language} getTranslated={getTranslated} direction="vn-to-kr" />;
       case 'talentPool': return <TalentPoolPage applicants={[]} skills={[]} t={t} language={language} getTranslated={getTranslated} viewerRole={currentUser?.role || null} onSelectApplicant={() => {}} />;
       case 'jobDetails': return selectedJob ? <JobDetails job={selectedJob} onBack={() => window.history.back()} onApply={() => {}} t={t} language={language} getTranslated={getTranslated} /> : null;
@@ -152,23 +313,26 @@ const App = () => {
         {renderContent()}
       </main>
       {isLoginModalOpen && (
-        <LoginPage onClose={() => setIsLoginModalOpen(false)} onLogin={(role) => { 
-          setCurrentUser({ 
-            id: 1, 
-            name: "Hwang Min-kyu", 
-            nationality: { ko: "한국", en: "KR", vi: "KR" }, 
-            avatar: "https://picsum.photos/seed/user/200", 
-            videoUrl: "https://www.w3schools.com/html/mov_bbb.mp4",
-            role,
-            university: "KONEXA University",
-            selfIntroduction: "Hello! I am a passionate developer seeking a global career.",
-            aiVerification: { devScore: 92, englishFluency: 88, koreanFluency: 95, culturalAdaptability: 90, ocrVerified: true },
-            visaDiagnosis: { probability: 89, eligibleType: "E-7-1" },
-            wpReady: { koreanLevel: 5, trainingCompletion: 100, behavioralScore: 94 }
-          }); 
-          setIsLoginModalOpen(false); 
-          navigate('mypage'); 
-        }} t={t} />
+        <LoginPage 
+          onClose={() => setIsLoginModalOpen(false)}
+          onLogin={async (payload) => {
+            const authData = await handleLogin(payload);
+            if (authData?.user) {
+              setCurrentUser(authData.user);
+              setIsLoginModalOpen(false);
+              navigate('mypage');
+            }
+          }}
+          onRegister={async (payload) => {
+            const authData = await handleRegister(payload);
+            if (authData?.user) {
+              setCurrentUser(authData.user);
+              setIsLoginModalOpen(false);
+              navigate('mypage');
+            }
+          }}
+          t={t}
+        />
       )}
       <Chatbot t={t} />
     </div>
