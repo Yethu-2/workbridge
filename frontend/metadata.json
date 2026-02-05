@@ -1,0 +1,8 @@
+{
+  "name": "R-Connect",
+  "description": "AI-Powered recruitment bridge for RMIT graduates and South Korean tech firms. Features automated E-7 visa diagnosis, AI code vetting, and real-time interviews.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
